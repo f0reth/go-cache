@@ -40,6 +40,7 @@ func (c *Cache[K, V]) Get(key K) (zero V, ok bool) {
 }
 
 // キャッシュから項目を削除します
+// キーが存在しない場合は何もしません
 func (c *Cache[K, V]) Delete(key K) {
 	c.mu.Lock()
 	delete(c.items, key)
@@ -51,4 +52,14 @@ func (c *Cache[K, V]) Clear() {
 	c.mu.Lock()
 	c.items = make(map[K]V)
 	c.mu.Unlock()
+}
+
+// キャッシュからすべての項目を取り出し、空にします
+// 取り出した項目をマップとして返します
+func (c *Cache[K, V]) Drain() map[K]V {
+	c.mu.Lock()
+	items := c.items
+	c.items = make(map[K]V)
+	c.mu.Unlock()
+	return items
 }

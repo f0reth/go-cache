@@ -317,6 +317,114 @@ func TestEdgeCases(t *testing.T) {
 	}
 }
 
+func TestDrain(t *testing.T) {
+	// 基本動作: 複数の値を取り出し、キャッシュが空になることを確認
+	c := New[string, int]()
+	c.Set("key1", 1)
+	c.Set("key2", 2)
+	c.Set("key3", 3)
+
+	items := c.Drain()
+
+	if len(items) != 3 {
+		t.Errorf("Drain should return all items, expected 3, got %d", len(items))
+	}
+	if items["key1"] != 1 || items["key2"] != 2 || items["key3"] != 3 {
+		t.Errorf("Drain should return correct values, got %v", items)
+	}
+
+	// キャッシュが空になっていることを確認
+	for _, key := range []string{"key1", "key2", "key3"} {
+		_, ok := c.Get(key)
+		if ok {
+			t.Errorf("Cache should be empty after Drain, but key %s still exists", key)
+		}
+	}
+
+	// Drain後にキャッシュが再利用できることを確認
+	c.Set("new-key", 100)
+	val, ok := c.Get("new-key")
+	if !ok || val != 100 {
+		t.Errorf("Cache should be reusable after Drain, got %v, %v", val, ok)
+	}
+}
+
+func TestDrainEmpty(t *testing.T) {
+	// 空のキャッシュをDrainしても空のマップが返ることを確認
+	c := New[string, int]()
+	items := c.Drain()
+
+	if len(items) != 0 {
+		t.Errorf("Drain on empty cache should return empty map, got %d items", len(items))
+	}
+}
+
+func TestDrainTwice(t *testing.T) {
+	// 2回連続でDrainした場合、2回目は空のマップが返ることを確認
+	c := New[string, int]()
+	c.Set("key1", 1)
+
+	first := c.Drain()
+	if len(first) != 1 {
+		t.Errorf("First Drain should return 1 item, got %d", len(first))
+	}
+
+	second := c.Drain()
+	if len(second) != 0 {
+		t.Errorf("Second Drain should return empty map, got %d items", len(second))
+	}
+}
+
+func TestDrainIsolation(t *testing.T) {
+	// Drainで取得したマップを変更してもキャッシュに影響しないことを確認
+	c := New[string, int]()
+	c.Set("key1", 1)
+
+	items := c.Drain()
+	items["key1"] = 999
+	items["key2"] = 2
+
+	_, ok := c.Get("key1")
+	if ok {
+		t.Error("Modifying drained map should not affect cache")
+	}
+	if len(c.Drain()) != 0 {
+		t.Error("Cache should remain empty after modifying drained map")
+	}
+}
+
+func TestDrainConcurrency(t *testing.T) {
+	// 並行してDrain・Set・Getを実行してもデッドロックや競合が起きないことを確認
+	c := New[int, int]()
+	var wg sync.WaitGroup
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			c.Set(id, id*10)
+		}(i)
+	}
+
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.Drain()
+		}()
+	}
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			_, _ = c.Get(id)
+		}(i)
+	}
+
+	wg.Wait()
+}
+
 func TestInterface(t *testing.T) {
 	var cache CacheInterface[string, int] = New[string, int]()
 
