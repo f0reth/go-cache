@@ -480,4 +480,18 @@ func TestInterface(t *testing.T) {
 	if ok {
 		t.Error("Interface Clear should remove all keys")
 	}
+
+	cache.Set("key3", 300)
+	cache.Set("key4", 400)
+	items := cache.Drain()
+	if len(items) != 2 {
+		t.Errorf("Interface Drain should return all items, expected 2, got %d", len(items))
+	}
+	if items["key3"] != 300 || items["key4"] != 400 {
+		t.Errorf("Interface Drain should return correct values, got %v", items)
+	}
+	_, ok = cache.Get("key3")
+	if ok {
+		t.Error("Interface Drain should empty the cache")
+	}
 }

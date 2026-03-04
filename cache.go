@@ -9,6 +9,7 @@ type CacheInterface[K comparable, V any] interface {
 	Get(key K) (V, bool)
 	Delete(key K)
 	Clear()
+	Drain() map[K]V
 }
 
 type Cache[K comparable, V any] struct {
