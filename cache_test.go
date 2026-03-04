@@ -318,7 +318,7 @@ func TestEdgeCases(t *testing.T) {
 }
 
 func TestInterface(t *testing.T) {
-	var cache CacheInterface = New[any, any]()
+	var cache CacheInterface[string, int] = New[string, int]()
 
 	// インターフェースメソッドを使用
 	cache.Set("key1", 42)
@@ -326,7 +326,7 @@ func TestInterface(t *testing.T) {
 	if !ok {
 		t.Error("Interface Get should return true for existing keys")
 	}
-	if val.(int) != 42 {
+	if val != 42 {
 		t.Errorf("Interface Get should return the correct value, expected 42, got %v", val)
 	}
 
@@ -336,7 +336,7 @@ func TestInterface(t *testing.T) {
 		t.Error("Interface Delete should remove keys")
 	}
 
-	cache.Set("key2", "value")
+	cache.Set("key2", 100)
 	cache.Clear()
 	_, ok = cache.Get("key2")
 	if ok {
