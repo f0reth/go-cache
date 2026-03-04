@@ -6,6 +6,8 @@ import (
 )
 
 func TestNew(t *testing.T) {
+	t.Parallel()
+
 	c := New[string, int]()
 	if c == nil {
 		t.Fatal("New should return a non-nil cache")
@@ -19,6 +21,8 @@ func TestNew(t *testing.T) {
 }
 
 func TestSetAndGet(t *testing.T) {
+	t.Parallel()
+
 	c := New[string, int]()
 
 	// キーが存在しない場合
@@ -54,6 +58,8 @@ func TestSetAndGet(t *testing.T) {
 }
 
 func TestDelete(t *testing.T) {
+	t.Parallel()
+
 	c := New[string, int]()
 
 	// 値を設定
@@ -87,6 +93,8 @@ func TestDelete(t *testing.T) {
 }
 
 func TestClear(t *testing.T) {
+	t.Parallel()
+
 	c := New[string, int]()
 
 	// いくつかの値を設定
@@ -120,6 +128,8 @@ func TestClear(t *testing.T) {
 }
 
 func TestMultipleTypes(t *testing.T) {
+	t.Parallel()
+
 	// 文字列キー・整数値
 	c1 := New[string, int]()
 	c1.Set("key1", 42)
@@ -165,6 +175,8 @@ func TestMultipleTypes(t *testing.T) {
 }
 
 func TestConcurrency(t *testing.T) {
+	t.Parallel()
+
 	c := New[int, int]()
 	var wg sync.WaitGroup
 
@@ -218,6 +230,8 @@ func TestConcurrency(t *testing.T) {
 }
 
 func TestConcurrentClear(t *testing.T) {
+	t.Parallel()
+
 	c := New[int, int]()
 	var wg sync.WaitGroup
 
@@ -261,6 +275,8 @@ func TestConcurrentClear(t *testing.T) {
 }
 
 func TestNilValueHandling(t *testing.T) {
+	t.Parallel()
+
 	// ポインタ型の値を使用
 	c := New[string, *int]()
 
@@ -292,6 +308,8 @@ func TestNilValueHandling(t *testing.T) {
 }
 
 func TestEdgeCases(t *testing.T) {
+	t.Parallel()
+
 	// 空の文字列をキーとして使用
 	c1 := New[string, int]()
 	c1.Set("", 42)
@@ -318,6 +336,8 @@ func TestEdgeCases(t *testing.T) {
 }
 
 func TestDrain(t *testing.T) {
+	t.Parallel()
+
 	// 基本動作: 複数の値を取り出し、キャッシュが空になることを確認
 	c := New[string, int]()
 	c.Set("key1", 1)
@@ -350,6 +370,8 @@ func TestDrain(t *testing.T) {
 }
 
 func TestDrainEmpty(t *testing.T) {
+	t.Parallel()
+
 	// 空のキャッシュをDrainしても空のマップが返ることを確認
 	c := New[string, int]()
 	items := c.Drain()
@@ -360,6 +382,8 @@ func TestDrainEmpty(t *testing.T) {
 }
 
 func TestDrainTwice(t *testing.T) {
+	t.Parallel()
+
 	// 2回連続でDrainした場合、2回目は空のマップが返ることを確認
 	c := New[string, int]()
 	c.Set("key1", 1)
@@ -376,6 +400,8 @@ func TestDrainTwice(t *testing.T) {
 }
 
 func TestDrainIsolation(t *testing.T) {
+	t.Parallel()
+
 	// Drainで取得したマップを変更してもキャッシュに影響しないことを確認
 	c := New[string, int]()
 	c.Set("key1", 1)
@@ -394,6 +420,8 @@ func TestDrainIsolation(t *testing.T) {
 }
 
 func TestDrainConcurrency(t *testing.T) {
+	t.Parallel()
+
 	// 並行してDrain・Set・Getを実行してもデッドロックや競合が起きないことを確認
 	c := New[int, int]()
 	var wg sync.WaitGroup
@@ -426,6 +454,8 @@ func TestDrainConcurrency(t *testing.T) {
 }
 
 func TestInterface(t *testing.T) {
+	t.Parallel()
+
 	var cache CacheInterface[string, int] = New[string, int]()
 
 	// インターフェースメソッドを使用
