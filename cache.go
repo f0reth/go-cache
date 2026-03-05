@@ -14,6 +14,9 @@ type CacheInterface[K comparable, V any] interface {
 	Has(key K) bool
 	Keys() []K
 	Values() []V
+	SetIfAbsent(key K, value V) bool
+	GetOrSet(key K, value V) V
+	Items() map[K]V
 }
 
 type Cache[K comparable, V any] struct {
@@ -95,6 +98,42 @@ func (c *Cache[K, V]) Values() []V {
 	}
 	c.mu.Unlock()
 	return values
+}
+
+// キーが存在しない場合のみ値をセットします
+// セットした場合はtrueを、既に存在した場合はfalseを返します
+func (c *Cache[K, V]) SetIfAbsent(key K, value V) bool {
+	c.mu.Lock()
+	_, exists := c.items[key]
+	if !exists {
+		c.items[key] = value
+	}
+	c.mu.Unlock()
+	return !exists
+}
+
+// キーが存在すればその値を返し、存在しなければvalueをセットして返します
+func (c *Cache[K, V]) GetOrSet(key K, value V) V {
+	c.mu.Lock()
+	if existing, ok := c.items[key]; ok {
+		c.mu.Unlock()
+		return existing
+	}
+	c.items[key] = value
+	c.mu.Unlock()
+	return value
+}
+
+// キャッシュに格納されているすべてのアイテムのコピーを返します
+// Drainと違い、キャッシュは変更されません
+func (c *Cache[K, V]) Items() map[K]V {
+	c.mu.Lock()
+	result := make(map[K]V, len(c.items))
+	for k, v := range c.items {
+		result[k] = v
+	}
+	c.mu.Unlock()
+	return result
 }
 
 // キャッシュからすべての項目を取り出し、空にします

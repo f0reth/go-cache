@@ -661,6 +661,184 @@ func TestValuesConcurrency(t *testing.T) {
 	wg.Wait()
 }
 
+func TestSetIfAbsent(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+
+	// 存在しないキーはセットされtrueを返す
+	if ok := c.SetIfAbsent("key1", 42); !ok {
+		t.Error("SetIfAbsent should return true when key does not exist")
+	}
+	val, _ := c.Get("key1")
+	if val != 42 {
+		t.Errorf("SetIfAbsent should set the value, expected 42, got %v", val)
+	}
+
+	// 既に存在するキーは上書きされずfalseを返す
+	if ok := c.SetIfAbsent("key1", 999); ok {
+		t.Error("SetIfAbsent should return false when key already exists")
+	}
+	val, _ = c.Get("key1")
+	if val != 42 {
+		t.Errorf("SetIfAbsent should not overwrite existing value, expected 42, got %v", val)
+	}
+
+	// 削除後は再セットできる
+	c.Delete("key1")
+	if ok := c.SetIfAbsent("key1", 100); !ok {
+		t.Error("SetIfAbsent should return true after Delete")
+	}
+	val, _ = c.Get("key1")
+	if val != 100 {
+		t.Errorf("SetIfAbsent should set new value after Delete, expected 100, got %v", val)
+	}
+}
+
+func TestSetIfAbsentConcurrency(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+	var wg sync.WaitGroup
+	results := make([]bool, 100)
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			results[id] = c.SetIfAbsent("key", id)
+		}(i)
+	}
+	wg.Wait()
+
+	// 同一キーに対してtrueを返したゴルーチンはちょうど1つ
+	count := 0
+	for _, ok := range results {
+		if ok {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("SetIfAbsent should succeed exactly once for the same key, got %d successes", count)
+	}
+}
+
+func TestGetOrSet(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+
+	// 存在しないキーはvalueをセットして返す
+	val := c.GetOrSet("key1", 42)
+	if val != 42 {
+		t.Errorf("GetOrSet should return the set value, expected 42, got %v", val)
+	}
+	stored, ok := c.Get("key1")
+	if !ok || stored != 42 {
+		t.Errorf("GetOrSet should persist the value in cache, expected 42, got %v", stored)
+	}
+
+	// 既に存在するキーは既存の値を返し、上書きしない
+	val = c.GetOrSet("key1", 999)
+	if val != 42 {
+		t.Errorf("GetOrSet should return existing value, expected 42, got %v", val)
+	}
+	stored, _ = c.Get("key1")
+	if stored != 42 {
+		t.Errorf("GetOrSet should not overwrite existing value, expected 42, got %v", stored)
+	}
+}
+
+func TestGetOrSetConcurrency(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+	var wg sync.WaitGroup
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			_ = c.GetOrSet("key", id)
+		}(i)
+	}
+	wg.Wait()
+
+	// 結果は必ずいずれか1つのgoroutineがセットした値
+	val, ok := c.Get("key")
+	if !ok {
+		t.Error("GetOrSet should have set a value")
+	}
+	if val < 0 || val >= 100 {
+		t.Errorf("GetOrSet result out of expected range: %d", val)
+	}
+}
+
+func TestItems(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+
+	// 空のキャッシュは空マップを返す
+	items := c.Items()
+	if len(items) != 0 {
+		t.Errorf("Items should return empty map for empty cache, got %v", items)
+	}
+
+	// 追加したアイテムがすべて含まれる
+	c.Set("key1", 1)
+	c.Set("key2", 2)
+	c.Set("key3", 3)
+
+	items = c.Items()
+	if len(items) != 3 {
+		t.Errorf("Items should return 3 items, got %d", len(items))
+	}
+	if items["key1"] != 1 || items["key2"] != 2 || items["key3"] != 3 {
+		t.Errorf("Items should return correct values, got %v", items)
+	}
+
+	// キャッシュは変更されない（Drainと違い）
+	if c.Len() != 3 {
+		t.Errorf("Items should not remove items from cache, got len %d", c.Len())
+	}
+
+	// 返されたマップを変更してもキャッシュに影響しない
+	items["key1"] = 999
+	items["key4"] = 4
+	val, ok := c.Get("key1")
+	if !ok || val != 1 {
+		t.Errorf("Modifying Items map should not affect cache, expected 1, got %v", val)
+	}
+	if c.Len() != 3 {
+		t.Errorf("Modifying Items map should not change cache size, got %d", c.Len())
+	}
+}
+
+func TestItemsConcurrency(t *testing.T) {
+	t.Parallel()
+
+	c := New[int, int]()
+	var wg sync.WaitGroup
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			c.Set(id, id*10)
+		}(i)
+	}
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = c.Items()
+		}()
+	}
+
+	wg.Wait()
+}
+
 func TestLen(t *testing.T) {
 	t.Parallel()
 
@@ -784,11 +962,28 @@ func TestInterface(t *testing.T) {
 	if len(cache.Values()) != 2 {
 		t.Errorf("Interface Values should return 2 values, got %d", len(cache.Values()))
 	}
-	items := cache.Drain()
-	if len(items) != 2 {
-		t.Errorf("Interface Drain should return all items, expected 2, got %d", len(items))
+	if ok := cache.SetIfAbsent("key3", 999); ok {
+		t.Error("Interface SetIfAbsent should return false for existing key")
 	}
-	if items["key3"] != 300 || items["key4"] != 400 {
+	if ok := cache.SetIfAbsent("key5", 500); !ok {
+		t.Error("Interface SetIfAbsent should return true for new key")
+	}
+	val5 := cache.GetOrSet("key5", 999)
+	if val5 != 500 {
+		t.Errorf("Interface GetOrSet should return existing value 500, got %d", val5)
+	}
+	allItems := cache.Items()
+	if len(allItems) != 3 {
+		t.Errorf("Interface Items should return 3 items, got %d", len(allItems))
+	}
+	if cache.Len() != 3 {
+		t.Error("Interface Items should not remove items from cache")
+	}
+	items := cache.Drain()
+	if len(items) != 3 {
+		t.Errorf("Interface Drain should return all items, expected 3, got %d", len(items))
+	}
+	if items["key3"] != 300 || items["key4"] != 400 || items["key5"] != 500 {
 		t.Errorf("Interface Drain should return correct values, got %v", items)
 	}
 	_, ok = cache.Get("key3")
