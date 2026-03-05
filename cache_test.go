@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 )
@@ -190,11 +191,13 @@ func TestConcurrency(t *testing.T) {
 	}
 	wg.Wait()
 
-	// フェーズ2: 複数のゴルーチンで同時に読み込みと削除
+	// フェーズ2: バリアパターンで読み込みと削除を確実に同時実行
+	start := make(chan struct{})
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
+			<-start
 			_, _ = c.Get(id)
 		}(i)
 	}
@@ -202,9 +205,11 @@ func TestConcurrency(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
+			<-start
 			c.Delete(id)
 		}(i)
 	}
+	close(start) // 全ゴルーチンを一斉スタート
 	wg.Wait()
 
 	// 削除したキーが存在しないことを確認
@@ -989,5 +994,267 @@ func TestInterface(t *testing.T) {
 	_, ok = cache.Get("key3")
 	if ok {
 		t.Error("Interface Drain should empty the cache")
+	}
+}
+
+// ベンチマークテスト
+
+func BenchmarkSet(b *testing.B) {
+	c := New[string, int]()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		c.Set("key", i)
+	}
+}
+
+func BenchmarkGet(b *testing.B) {
+	c := New[string, int]()
+	c.Set("key", 42)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		c.Get("key")
+	}
+}
+
+func BenchmarkSetGet(b *testing.B) {
+	c := New[int, int]()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		c.Set(i, i)
+		c.Get(i)
+	}
+}
+
+func BenchmarkConcurrentReadWrite(b *testing.B) {
+	c := New[int, int]()
+	for i := 0; i < 1000; i++ {
+		c.Set(i, i)
+	}
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			if i%10 == 0 {
+				c.Set(i%1000, i)
+			} else {
+				c.Get(i % 1000)
+			}
+			i++
+		}
+	})
+}
+
+func BenchmarkConcurrentRead(b *testing.B) {
+	c := New[int, int]()
+	for i := 0; i < 1000; i++ {
+		c.Set(i, i)
+	}
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			c.Get(i % 1000)
+			i++
+		}
+	})
+}
+
+func BenchmarkSetIfAbsent(b *testing.B) {
+	c := New[int, int]()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		c.SetIfAbsent(i, i)
+	}
+}
+
+func BenchmarkGetOrSet(b *testing.B) {
+	c := New[int, int]()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		c.GetOrSet(i%100, i)
+	}
+}
+
+// 大量データテスト
+
+func TestLargeScale(t *testing.T) {
+	t.Parallel()
+
+	const n = 100_000
+	c := New[int, int]()
+
+	// 大量のSetとGet
+	for i := 0; i < n; i++ {
+		c.Set(i, i*10)
+	}
+	if c.Len() != n {
+		t.Errorf("Len should return %d after %d Sets, got %d", n, n, c.Len())
+	}
+
+	for i := 0; i < n; i++ {
+		val, ok := c.Get(i)
+		if !ok {
+			t.Fatalf("Key %d should exist", i)
+		}
+		if val != i*10 {
+			t.Fatalf("Key %d should have value %d, got %d", i, i*10, val)
+		}
+	}
+
+	// Keys, Values, Items の件数が正しいこと
+	keys := c.Keys()
+	if len(keys) != n {
+		t.Errorf("Keys should return %d keys, got %d", n, len(keys))
+	}
+
+	values := c.Values()
+	if len(values) != n {
+		t.Errorf("Values should return %d values, got %d", n, len(values))
+	}
+
+	items := c.Items()
+	if len(items) != n {
+		t.Errorf("Items should return %d items, got %d", n, len(items))
+	}
+
+	// Drain で全件取り出し
+	drained := c.Drain()
+	if len(drained) != n {
+		t.Errorf("Drain should return %d items, got %d", n, len(drained))
+	}
+	if c.Len() != 0 {
+		t.Errorf("Len should be 0 after Drain, got %d", c.Len())
+	}
+}
+
+func TestLargeScaleConcurrency(t *testing.T) {
+	t.Parallel()
+
+	const n = 100_000
+	c := New[int, int]()
+	var wg sync.WaitGroup
+
+	// 大量の並行書き込み
+	start := make(chan struct{})
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			<-start
+			c.Set(id, id*10)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	if c.Len() != n {
+		t.Errorf("Len should return %d, got %d", n, c.Len())
+	}
+
+	// 大量の並行読み書き混在
+	start2 := make(chan struct{})
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			<-start2
+			switch id % 4 {
+			case 0:
+				c.Set(id, id*100)
+			case 1:
+				c.Get(id)
+			case 2:
+				c.Has(id)
+			case 3:
+				c.Delete(id)
+			}
+		}(i)
+	}
+	close(start2)
+	wg.Wait()
+}
+
+func TestLargeScaleOverwrite(t *testing.T) {
+	t.Parallel()
+
+	const n = 100_000
+	c := New[string, int]()
+
+	// 同一キーに大量上書き
+	for i := 0; i < n; i++ {
+		c.Set("key", i)
+	}
+	if c.Len() != 1 {
+		t.Errorf("Len should be 1 after overwriting same key %d times, got %d", n, c.Len())
+	}
+	val, ok := c.Get("key")
+	if !ok || val != n-1 {
+		t.Errorf("Get should return last written value %d, got %d", n-1, val)
+	}
+
+	// 多数のキーをSetしてからDeleteし、件数が一致することを確認
+	c2 := New[int, int]()
+	for i := 0; i < n; i++ {
+		c2.Set(i, i)
+	}
+	for i := 0; i < n; i += 2 {
+		c2.Delete(i)
+	}
+	expected := n / 2
+	if c2.Len() != expected {
+		t.Errorf("Len should be %d after deleting half, got %d", expected, c2.Len())
+	}
+
+	// 残りのキーが全て正しい値を持つことを確認
+	for i := 1; i < n; i += 2 {
+		val, ok := c2.Get(i)
+		if !ok || val != i {
+			t.Fatalf("Key %d should exist with value %d, got %v, %v", i, i, val, ok)
+		}
+	}
+}
+
+func BenchmarkKeys(b *testing.B) {
+	for _, size := range []int{100, 1_000, 10_000} {
+		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
+			c := New[int, int]()
+			for i := 0; i < size; i++ {
+				c.Set(i, i)
+			}
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				c.Keys()
+			}
+		})
+	}
+}
+
+func BenchmarkItems(b *testing.B) {
+	for _, size := range []int{100, 1_000, 10_000} {
+		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
+			c := New[int, int]()
+			for i := 0; i < size; i++ {
+				c.Set(i, i)
+			}
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				c.Items()
+			}
+		})
+	}
+}
+
+func BenchmarkDrain(b *testing.B) {
+	for _, size := range []int{100, 1_000, 10_000} {
+		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
+			c := New[int, int]()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				for j := 0; j < size; j++ {
+					c.Set(j, j)
+				}
+				c.Drain()
+			}
+		})
 	}
 }
