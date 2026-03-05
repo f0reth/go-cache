@@ -180,7 +180,7 @@ func TestConcurrency(t *testing.T) {
 	c := New[int, int]()
 	var wg sync.WaitGroup
 
-	// 複数のゴルーチンで同時に書き込み
+	// フェーズ1: 複数のゴルーチンで同時に書き込み
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
 		go func(id int) {
@@ -188,8 +188,9 @@ func TestConcurrency(t *testing.T) {
 			c.Set(id, id*10)
 		}(i)
 	}
+	wg.Wait()
 
-	// 複数のゴルーチンで同時に読み込み
+	// フェーズ2: 複数のゴルーチンで同時に読み込みと削除
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
 		go func(id int) {
@@ -197,8 +198,6 @@ func TestConcurrency(t *testing.T) {
 			_, _ = c.Get(id)
 		}(i)
 	}
-
-	// 一部のキーを削除
 	for i := 0; i < 50; i += 2 {
 		wg.Add(1)
 		go func(id int) {
@@ -206,8 +205,6 @@ func TestConcurrency(t *testing.T) {
 			c.Delete(id)
 		}(i)
 	}
-
-	// すべてのゴルーチンの完了を待つ
 	wg.Wait()
 
 	// 削除したキーが存在しないことを確認
