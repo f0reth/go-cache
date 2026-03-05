@@ -450,6 +450,84 @@ func TestDrainConcurrency(t *testing.T) {
 	wg.Wait()
 }
 
+func TestLen(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+
+	// 空のキャッシュは0を返す
+	if n := c.Len(); n != 0 {
+		t.Errorf("Len should return 0 for empty cache, got %d", n)
+	}
+
+	// アイテムを追加するたびに増加する
+	c.Set("key1", 1)
+	if n := c.Len(); n != 1 {
+		t.Errorf("Len should return 1 after one Set, got %d", n)
+	}
+
+	c.Set("key2", 2)
+	c.Set("key3", 3)
+	if n := c.Len(); n != 3 {
+		t.Errorf("Len should return 3 after three Sets, got %d", n)
+	}
+
+	// 同じキーを上書きしてもアイテム数は変わらない
+	c.Set("key1", 100)
+	if n := c.Len(); n != 3 {
+		t.Errorf("Len should return 3 after overwriting a key, got %d", n)
+	}
+
+	// 削除するとアイテム数が減る
+	c.Delete("key1")
+	if n := c.Len(); n != 2 {
+		t.Errorf("Len should return 2 after Delete, got %d", n)
+	}
+
+	// Clearするとアイテム数が0になる
+	c.Clear()
+	if n := c.Len(); n != 0 {
+		t.Errorf("Len should return 0 after Clear, got %d", n)
+	}
+
+	// Drainするとアイテム数が0になる
+	c.Set("key1", 1)
+	c.Set("key2", 2)
+	c.Drain()
+	if n := c.Len(); n != 0 {
+		t.Errorf("Len should return 0 after Drain, got %d", n)
+	}
+}
+
+func TestLenConcurrency(t *testing.T) {
+	t.Parallel()
+
+	c := New[int, int]()
+	var wg sync.WaitGroup
+
+	// 並行してSetとLenを実行してもデッドロックや競合が起きないことを確認
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			c.Set(id, id*10)
+		}(i)
+	}
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = c.Len()
+		}()
+	}
+
+	wg.Wait()
+
+	if n := c.Len(); n != 100 {
+		t.Errorf("Len should return 100 after 100 Sets, got %d", n)
+	}
+}
+
 func TestInterface(t *testing.T) {
 	t.Parallel()
 
@@ -480,6 +558,9 @@ func TestInterface(t *testing.T) {
 
 	cache.Set("key3", 300)
 	cache.Set("key4", 400)
+	if n := cache.Len(); n != 2 {
+		t.Errorf("Interface Len should return 2, got %d", n)
+	}
 	items := cache.Drain()
 	if len(items) != 2 {
 		t.Errorf("Interface Drain should return all items, expected 2, got %d", len(items))
