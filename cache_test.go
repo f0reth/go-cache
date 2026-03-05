@@ -450,6 +450,217 @@ func TestDrainConcurrency(t *testing.T) {
 	wg.Wait()
 }
 
+func TestHas(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+
+	// 存在しないキーはfalseを返す
+	if c.Has("not-exists") {
+		t.Error("Has should return false for non-existent keys")
+	}
+
+	// 存在するキーはtrueを返す
+	c.Set("key1", 42)
+	if !c.Has("key1") {
+		t.Error("Has should return true for existing keys")
+	}
+
+	// 削除後はfalseを返す
+	c.Delete("key1")
+	if c.Has("key1") {
+		t.Error("Has should return false after Delete")
+	}
+
+	// nilポインタを格納したキーもtrueを返す
+	cp := New[string, *int]()
+	cp.Set("nil-key", nil)
+	if !cp.Has("nil-key") {
+		t.Error("Has should return true for keys with nil values")
+	}
+
+	// Clear後はfalseを返す
+	c.Set("key2", 100)
+	c.Clear()
+	if c.Has("key2") {
+		t.Error("Has should return false after Clear")
+	}
+}
+
+func TestHasConcurrency(t *testing.T) {
+	t.Parallel()
+
+	c := New[int, int]()
+	var wg sync.WaitGroup
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			c.Set(id, id*10)
+		}(i)
+	}
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			_ = c.Has(id)
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+func TestKeys(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+
+	// 空のキャッシュは空スライスを返す
+	keys := c.Keys()
+	if len(keys) != 0 {
+		t.Errorf("Keys should return empty slice for empty cache, got %v", keys)
+	}
+
+	// 追加したキーが含まれる
+	c.Set("key1", 1)
+	c.Set("key2", 2)
+	c.Set("key3", 3)
+
+	keys = c.Keys()
+	if len(keys) != 3 {
+		t.Errorf("Keys should return 3 keys, got %d", len(keys))
+	}
+
+	keySet := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		keySet[k] = true
+	}
+	for _, expected := range []string{"key1", "key2", "key3"} {
+		if !keySet[expected] {
+			t.Errorf("Keys should contain %q", expected)
+		}
+	}
+
+	// 削除後はそのキーが含まれない
+	c.Delete("key1")
+	keys = c.Keys()
+	if len(keys) != 2 {
+		t.Errorf("Keys should return 2 keys after Delete, got %d", len(keys))
+	}
+	for _, k := range keys {
+		if k == "key1" {
+			t.Error("Keys should not contain deleted key")
+		}
+	}
+
+	// Clear後は空スライスを返す
+	c.Clear()
+	keys = c.Keys()
+	if len(keys) != 0 {
+		t.Errorf("Keys should return empty slice after Clear, got %v", keys)
+	}
+}
+
+func TestKeysConcurrency(t *testing.T) {
+	t.Parallel()
+
+	c := New[int, int]()
+	var wg sync.WaitGroup
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			c.Set(id, id*10)
+		}(i)
+	}
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = c.Keys()
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestValues(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+
+	// 空のキャッシュは空スライスを返す
+	values := c.Values()
+	if len(values) != 0 {
+		t.Errorf("Values should return empty slice for empty cache, got %v", values)
+	}
+
+	// 追加した値が含まれる
+	c.Set("key1", 1)
+	c.Set("key2", 2)
+	c.Set("key3", 3)
+
+	values = c.Values()
+	if len(values) != 3 {
+		t.Errorf("Values should return 3 values, got %d", len(values))
+	}
+
+	valSet := make(map[int]bool, len(values))
+	for _, v := range values {
+		valSet[v] = true
+	}
+	for _, expected := range []int{1, 2, 3} {
+		if !valSet[expected] {
+			t.Errorf("Values should contain %d", expected)
+		}
+	}
+
+	// 削除後はその値が含まれない
+	c.Delete("key1")
+	values = c.Values()
+	if len(values) != 2 {
+		t.Errorf("Values should return 2 values after Delete, got %d", len(values))
+	}
+	for _, v := range values {
+		if v == 1 {
+			t.Error("Values should not contain value of deleted key")
+		}
+	}
+
+	// Clear後は空スライスを返す
+	c.Clear()
+	values = c.Values()
+	if len(values) != 0 {
+		t.Errorf("Values should return empty slice after Clear, got %v", values)
+	}
+}
+
+func TestValuesConcurrency(t *testing.T) {
+	t.Parallel()
+
+	c := New[int, int]()
+	var wg sync.WaitGroup
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			c.Set(id, id*10)
+		}(i)
+	}
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = c.Values()
+		}()
+	}
+
+	wg.Wait()
+}
+
 func TestLen(t *testing.T) {
 	t.Parallel()
 
@@ -560,6 +771,18 @@ func TestInterface(t *testing.T) {
 	cache.Set("key4", 400)
 	if n := cache.Len(); n != 2 {
 		t.Errorf("Interface Len should return 2, got %d", n)
+	}
+	if !cache.Has("key3") {
+		t.Error("Interface Has should return true for existing key")
+	}
+	if cache.Has("not-exists") {
+		t.Error("Interface Has should return false for non-existent key")
+	}
+	if len(cache.Keys()) != 2 {
+		t.Errorf("Interface Keys should return 2 keys, got %d", len(cache.Keys()))
+	}
+	if len(cache.Values()) != 2 {
+		t.Errorf("Interface Values should return 2 values, got %d", len(cache.Values()))
 	}
 	items := cache.Drain()
 	if len(items) != 2 {

@@ -11,6 +11,9 @@ type CacheInterface[K comparable, V any] interface {
 	Clear()
 	Drain() map[K]V
 	Len() int
+	Has(key K) bool
+	Keys() []K
+	Values() []V
 }
 
 type Cache[K comparable, V any] struct {
@@ -62,6 +65,36 @@ func (c *Cache[K, V]) Len() int {
 	n := len(c.items)
 	c.mu.Unlock()
 	return n
+}
+
+// キーがキャッシュに存在するかどうかを返します
+func (c *Cache[K, V]) Has(key K) bool {
+	c.mu.Lock()
+	_, ok := c.items[key]
+	c.mu.Unlock()
+	return ok
+}
+
+// キャッシュに格納されているすべてのキーを返します
+func (c *Cache[K, V]) Keys() []K {
+	c.mu.Lock()
+	keys := make([]K, 0, len(c.items))
+	for k := range c.items {
+		keys = append(keys, k)
+	}
+	c.mu.Unlock()
+	return keys
+}
+
+// キャッシュに格納されているすべての値を返します
+func (c *Cache[K, V]) Values() []V {
+	c.mu.Lock()
+	values := make([]V, 0, len(c.items))
+	for _, v := range c.items {
+		values = append(values, v)
+	}
+	c.mu.Unlock()
+	return values
 }
 
 // キャッシュからすべての項目を取り出し、空にします
