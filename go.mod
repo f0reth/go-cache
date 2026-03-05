@@ -1,3 +1,3 @@
-module github.com/daichi2mori/go-cache
+module github.com/f0reth/go-cache
 
 go 1.20
