@@ -779,15 +779,15 @@ func TestGetOrSetConcurrency(t *testing.T) {
 	}
 }
 
-func TestItems(t *testing.T) {
+func TestSnapshot(t *testing.T) {
 	t.Parallel()
 
 	c := New[string, int]()
 
 	// 空のキャッシュは空マップを返す
-	items := c.Items()
+	items := c.Snapshot()
 	if len(items) != 0 {
-		t.Errorf("Items should return empty map for empty cache, got %v", items)
+		t.Errorf("Snapshot should return empty map for empty cache, got %v", items)
 	}
 
 	// 追加したアイテムがすべて含まれる
@@ -795,17 +795,17 @@ func TestItems(t *testing.T) {
 	c.Set("key2", 2)
 	c.Set("key3", 3)
 
-	items = c.Items()
+	items = c.Snapshot()
 	if len(items) != 3 {
-		t.Errorf("Items should return 3 items, got %d", len(items))
+		t.Errorf("Snapshot should return 3 items, got %d", len(items))
 	}
 	if items["key1"] != 1 || items["key2"] != 2 || items["key3"] != 3 {
-		t.Errorf("Items should return correct values, got %v", items)
+		t.Errorf("Snapshot should return correct values, got %v", items)
 	}
 
 	// キャッシュは変更されない（Drainと違い）
 	if c.Len() != 3 {
-		t.Errorf("Items should not remove items from cache, got len %d", c.Len())
+		t.Errorf("Snapshot should not remove items from cache, got len %d", c.Len())
 	}
 
 	// 返されたマップを変更してもキャッシュに影響しない
@@ -813,14 +813,14 @@ func TestItems(t *testing.T) {
 	items["key4"] = 4
 	val, ok := c.Get("key1")
 	if !ok || val != 1 {
-		t.Errorf("Modifying Items map should not affect cache, expected 1, got %v", val)
+		t.Errorf("Modifying Snapshot map should not affect cache, expected 1, got %v", val)
 	}
 	if c.Len() != 3 {
-		t.Errorf("Modifying Items map should not change cache size, got %d", c.Len())
+		t.Errorf("Modifying Snapshot map should not change cache size, got %d", c.Len())
 	}
 }
 
-func TestItemsConcurrency(t *testing.T) {
+func TestSnapshotConcurrency(t *testing.T) {
 	t.Parallel()
 
 	c := New[int, int]()
@@ -837,7 +837,76 @@ func TestItemsConcurrency(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = c.Items()
+			_ = c.Snapshot()
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestRange(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+
+	// 空のキャッシュでRangeしても何も起きない
+	count := 0
+	c.Range(func(key string, value int) bool {
+		count++
+		return true
+	})
+	if count != 0 {
+		t.Errorf("Range on empty cache should not call fn, got %d calls", count)
+	}
+
+	// 全アイテムを巡回
+	c.Set("key1", 1)
+	c.Set("key2", 2)
+	c.Set("key3", 3)
+
+	visited := make(map[string]int)
+	c.Range(func(key string, value int) bool {
+		visited[key] = value
+		return true
+	})
+	if len(visited) != 3 {
+		t.Errorf("Range should visit all 3 items, got %d", len(visited))
+	}
+	if visited["key1"] != 1 || visited["key2"] != 2 || visited["key3"] != 3 {
+		t.Errorf("Range should visit correct key-value pairs, got %v", visited)
+	}
+
+	// falseを返すと即停止
+	stopCount := 0
+	c.Range(func(key string, value int) bool {
+		stopCount++
+		return false
+	})
+	if stopCount != 1 {
+		t.Errorf("Range should stop after fn returns false, got %d calls", stopCount)
+	}
+}
+
+func TestRangeConcurrency(t *testing.T) {
+	t.Parallel()
+
+	c := New[int, int]()
+	var wg sync.WaitGroup
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			c.Set(id, id*10)
+		}(i)
+	}
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.Range(func(key int, value int) bool {
+				return true
+			})
 		}()
 	}
 
@@ -977,12 +1046,12 @@ func TestInterface(t *testing.T) {
 	if val5 != 500 {
 		t.Errorf("Interface GetOrSet should return existing value 500, got %d", val5)
 	}
-	allItems := cache.Items()
+	allItems := cache.Snapshot()
 	if len(allItems) != 3 {
-		t.Errorf("Interface Items should return 3 items, got %d", len(allItems))
+		t.Errorf("Interface Snapshot should return 3 items, got %d", len(allItems))
 	}
 	if cache.Len() != 3 {
-		t.Error("Interface Items should not remove items from cache")
+		t.Error("Interface Snapshot should not remove items from cache")
 	}
 	items := cache.Drain()
 	if len(items) != 3 {
@@ -1101,7 +1170,7 @@ func TestLargeScale(t *testing.T) {
 		}
 	}
 
-	// Keys, Values, Items の件数が正しいこと
+	// Keys, Values, Snapshot の件数が正しいこと
 	keys := c.Keys()
 	if len(keys) != n {
 		t.Errorf("Keys should return %d keys, got %d", n, len(keys))
@@ -1112,9 +1181,9 @@ func TestLargeScale(t *testing.T) {
 		t.Errorf("Values should return %d values, got %d", n, len(values))
 	}
 
-	items := c.Items()
+	items := c.Snapshot()
 	if len(items) != n {
-		t.Errorf("Items should return %d items, got %d", n, len(items))
+		t.Errorf("Snapshot should return %d items, got %d", n, len(items))
 	}
 
 	// Drain で全件取り出し
@@ -1229,7 +1298,7 @@ func BenchmarkKeys(b *testing.B) {
 	}
 }
 
-func BenchmarkItems(b *testing.B) {
+func BenchmarkSnapshot(b *testing.B) {
 	for _, size := range []int{100, 1_000, 10_000} {
 		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
 			c := New[int, int]()
@@ -1238,7 +1307,7 @@ func BenchmarkItems(b *testing.B) {
 			}
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				c.Items()
+				c.Snapshot()
 			}
 		})
 	}

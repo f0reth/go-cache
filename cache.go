@@ -16,7 +16,8 @@ type CacheInterface[K comparable, V any] interface {
 	Values() []V
 	SetIfAbsent(key K, value V) bool
 	GetOrSet(key K, value V) V
-	Items() map[K]V
+	Snapshot() map[K]V
+	Range(fn func(key K, value V) bool)
 }
 
 type Cache[K comparable, V any] struct {
@@ -126,7 +127,7 @@ func (c *Cache[K, V]) GetOrSet(key K, value V) V {
 
 // キャッシュに格納されているすべてのアイテムのコピーを返します
 // Drainと違い、キャッシュは変更されません
-func (c *Cache[K, V]) Items() map[K]V {
+func (c *Cache[K, V]) Snapshot() map[K]V {
 	c.mu.Lock()
 	result := make(map[K]V, len(c.items))
 	for k, v := range c.items {
@@ -134,6 +135,18 @@ func (c *Cache[K, V]) Items() map[K]V {
 	}
 	c.mu.Unlock()
 	return result
+}
+
+// キャッシュ内の全アイテムを巡回し、fnを呼び出します
+// fnがfalseを返した場合、巡回を即座に停止します
+func (c *Cache[K, V]) Range(fn func(key K, value V) bool) {
+	c.mu.Lock()
+	for k, v := range c.items {
+		if !fn(k, v) {
+			break
+		}
+	}
+	c.mu.Unlock()
 }
 
 // キャッシュからすべての項目を取り出し、空にします
