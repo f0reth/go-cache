@@ -1313,6 +1313,342 @@ func BenchmarkSnapshot(b *testing.B) {
 	}
 }
 
+func TestDeleteFunc(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+	c.Set("a", 1)
+	c.Set("b", -2)
+	c.Set("c", 3)
+	c.Set("d", -4)
+
+	c.DeleteFunc(func(k string, v int) bool {
+		return v <= 0
+	})
+
+	if c.Len() != 2 {
+		t.Errorf("Len should be 2 after DeleteFunc, got %d", c.Len())
+	}
+	if v, ok := c.Get("a"); !ok || v != 1 {
+		t.Errorf("key 'a' should remain with value 1, got %v, %v", v, ok)
+	}
+	if v, ok := c.Get("c"); !ok || v != 3 {
+		t.Errorf("key 'c' should remain with value 3, got %v, %v", v, ok)
+	}
+	if _, ok := c.Get("b"); ok {
+		t.Error("key 'b' should have been deleted")
+	}
+	if _, ok := c.Get("d"); ok {
+		t.Error("key 'd' should have been deleted")
+	}
+
+	// 空のキャッシュに対しても安全に呼べる
+	c2 := New[string, int]()
+	c2.DeleteFunc(func(k string, v int) bool { return true })
+	if c2.Len() != 0 {
+		t.Errorf("DeleteFunc on empty cache should be safe, got len %d", c2.Len())
+	}
+
+	// 全件削除
+	c3 := New[string, int]()
+	c3.Set("x", 1)
+	c3.Set("y", 2)
+	c3.DeleteFunc(func(k string, v int) bool { return true })
+	if c3.Len() != 0 {
+		t.Errorf("DeleteFunc with always-true should delete all, got len %d", c3.Len())
+	}
+}
+
+func TestDeleteFuncConcurrency(t *testing.T) {
+	t.Parallel()
+
+	c := New[int, int]()
+	var wg sync.WaitGroup
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			c.Set(id, id)
+		}(i)
+	}
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.DeleteFunc(func(k, v int) bool { return k%2 == 0 })
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestPop(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+	c.Set("key1", 42)
+	c.Set("key2", 100)
+
+	val, ok := c.Pop("key1")
+	if !ok || val != 42 {
+		t.Errorf("Pop should return (42, true), got (%v, %v)", val, ok)
+	}
+	if c.Has("key1") {
+		t.Error("Pop should remove the key from cache")
+	}
+	if c.Len() != 1 {
+		t.Errorf("Len should be 1 after Pop, got %d", c.Len())
+	}
+
+	// 存在しないキー
+	val, ok = c.Pop("not-exists")
+	if ok {
+		t.Error("Pop should return false for non-existent key")
+	}
+	if val != 0 {
+		t.Errorf("Pop should return zero value for non-existent key, got %v", val)
+	}
+
+	// key2はまだ存在する
+	val, ok = c.Pop("key2")
+	if !ok || val != 100 {
+		t.Errorf("Pop should return (100, true), got (%v, %v)", val, ok)
+	}
+	if c.Len() != 0 {
+		t.Errorf("Len should be 0 after popping all keys, got %d", c.Len())
+	}
+}
+
+func TestPopConcurrency(t *testing.T) {
+	t.Parallel()
+
+	c := New[int, int]()
+	for i := 0; i < 100; i++ {
+		c.Set(i, i*10)
+	}
+
+	var wg sync.WaitGroup
+	results := make([]bool, 100)
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			_, results[id] = c.Pop(id)
+		}(i)
+	}
+	wg.Wait()
+
+	for i := 0; i < 100; i++ {
+		if !results[i] {
+			t.Errorf("Pop(%d) should have succeeded", i)
+		}
+	}
+	if c.Len() != 0 {
+		t.Errorf("Cache should be empty after popping all keys, got len %d", c.Len())
+	}
+}
+
+func TestSetAll(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+	c.Set("existing", 999)
+
+	c.SetAll(map[string]int{
+		"key1": 1,
+		"key2": 2,
+		"key3": 3,
+	})
+
+	if c.Len() != 4 {
+		t.Errorf("Len should be 4, got %d", c.Len())
+	}
+	for _, tc := range []struct {
+		k string
+		v int
+	}{{"existing", 999}, {"key1", 1}, {"key2", 2}, {"key3", 3}} {
+		val, ok := c.Get(tc.k)
+		if !ok || val != tc.v {
+			t.Errorf("Get(%q) = (%v, %v), want (%v, true)", tc.k, val, ok, tc.v)
+		}
+	}
+
+	// 上書きも可能
+	c.SetAll(map[string]int{"existing": 0})
+	val, _ := c.Get("existing")
+	if val != 0 {
+		t.Errorf("SetAll should overwrite existing keys, got %v", val)
+	}
+
+	// 空マップでも安全
+	c.SetAll(map[string]int{})
+	if c.Len() != 4 {
+		t.Errorf("SetAll with empty map should not change cache, got len %d", c.Len())
+	}
+}
+
+func TestSetAllConcurrency(t *testing.T) {
+	t.Parallel()
+
+	c := New[int, int]()
+	var wg sync.WaitGroup
+
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			c.SetAll(map[int]int{id: id * 10, id + 1000: id * 100})
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+func TestGetAll(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+	c.Set("key1", 1)
+	c.Set("key3", 3)
+
+	result := c.GetAll("key1", "key2", "key3")
+	if len(result) != 2 {
+		t.Errorf("GetAll should return 2 items, got %d", len(result))
+	}
+	if result["key1"] != 1 {
+		t.Errorf("GetAll should contain key1=1, got %v", result["key1"])
+	}
+	if result["key3"] != 3 {
+		t.Errorf("GetAll should contain key3=3, got %v", result["key3"])
+	}
+	if _, exists := result["key2"]; exists {
+		t.Error("GetAll should not contain non-existent keys")
+	}
+
+	// キーなしで呼んでも安全
+	empty := c.GetAll()
+	if len(empty) != 0 {
+		t.Errorf("GetAll with no keys should return empty map, got %v", empty)
+	}
+
+	// 全て存在しないキー
+	none := c.GetAll("x", "y")
+	if len(none) != 0 {
+		t.Errorf("GetAll with all non-existent keys should return empty map, got %v", none)
+	}
+}
+
+func TestGetAllConcurrency(t *testing.T) {
+	t.Parallel()
+
+	c := New[int, int]()
+	for i := 0; i < 100; i++ {
+		c.Set(i, i*10)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			_ = c.GetAll(id, id+1, id+2)
+		}(i)
+	}
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			c.Set(id, id*100)
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+func TestGetOrSetFunc(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+
+	callCount := 0
+	val := c.GetOrSetFunc("key1", func() int {
+		callCount++
+		return 42
+	})
+	if val != 42 {
+		t.Errorf("GetOrSetFunc should return 42, got %v", val)
+	}
+	if callCount != 1 {
+		t.Errorf("fn should be called once, got %d", callCount)
+	}
+	stored, ok := c.Get("key1")
+	if !ok || stored != 42 {
+		t.Errorf("GetOrSetFunc should persist value, got %v, %v", stored, ok)
+	}
+
+	// 既に存在するキーではfnは呼ばれない
+	val = c.GetOrSetFunc("key1", func() int {
+		callCount++
+		return 999
+	})
+	if val != 42 {
+		t.Errorf("GetOrSetFunc should return existing value 42, got %v", val)
+	}
+	if callCount != 1 {
+		t.Errorf("fn should not be called for existing key, got %d calls", callCount)
+	}
+}
+
+func TestGetOrSetFuncConcurrency(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+	var wg sync.WaitGroup
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			_ = c.GetOrSetFunc("key", func() int { return id })
+		}(i)
+	}
+	wg.Wait()
+
+	val, ok := c.Get("key")
+	if !ok {
+		t.Error("GetOrSetFunc should have set a value")
+	}
+	if val < 0 || val >= 100 {
+		t.Errorf("GetOrSetFunc result out of expected range: %d", val)
+	}
+}
+
+func TestCount(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+	c.Set("a", 1)
+	c.Set("b", -2)
+	c.Set("c", 3)
+	c.Set("d", -4)
+
+	n := c.Count(func(k string, v int) bool { return v > 0 })
+	if n != 2 {
+		t.Errorf("Count of positive values should be 2, got %d", n)
+	}
+
+	n = c.Count(func(k string, v int) bool { return true })
+	if n != 4 {
+		t.Errorf("Count with always-true should be 4, got %d", n)
+	}
+
+	n = c.Count(func(k string, v int) bool { return false })
+	if n != 0 {
+		t.Errorf("Count with always-false should be 0, got %d", n)
+	}
+}
+
 func BenchmarkDrain(b *testing.B) {
 	for _, size := range []int{100, 1_000, 10_000} {
 		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {

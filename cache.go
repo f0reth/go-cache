@@ -16,8 +16,14 @@ type CacheInterface[K comparable, V any] interface {
 	Values() []V
 	SetIfAbsent(key K, value V) bool
 	GetOrSet(key K, value V) V
+	GetOrSetFunc(key K, fn func() V) V
 	Snapshot() map[K]V
 	Range(fn func(key K, value V) bool)
+	Count(fn func(K, V) bool) int
+	DeleteFunc(fn func(K, V) bool)
+	Pop(key K) (V, bool)
+	SetAll(items map[K]V)
+	GetAll(keys ...K) map[K]V
 }
 
 type Cache[K comparable, V any] struct {
@@ -149,6 +155,19 @@ func (c *Cache[K, V]) Range(fn func(key K, value V) bool) {
 	c.mu.Unlock()
 }
 
+// 条件fnを満たすアイテムの数を返します
+func (c *Cache[K, V]) Count(fn func(K, V) bool) int {
+	c.mu.Lock()
+	n := 0
+	for k, v := range c.items {
+		if fn(k, v) {
+			n++
+		}
+	}
+	c.mu.Unlock()
+	return n
+}
+
 // キャッシュからすべての項目を取り出し、空にします
 // 取り出した項目をマップとして返します
 func (c *Cache[K, V]) Drain() map[K]V {
@@ -157,4 +176,63 @@ func (c *Cache[K, V]) Drain() map[K]V {
 	c.items = make(map[K]V)
 	c.mu.Unlock()
 	return items
+}
+
+// 条件fnを満たすアイテムを一括削除します
+func (c *Cache[K, V]) DeleteFunc(fn func(K, V) bool) {
+	c.mu.Lock()
+	for k, v := range c.items {
+		if fn(k, v) {
+			delete(c.items, k)
+		}
+	}
+	c.mu.Unlock()
+}
+
+// キーの値を取得すると同時にキャッシュから削除します
+func (c *Cache[K, V]) Pop(key K) (zero V, ok bool) {
+	c.mu.Lock()
+	val, ok := c.items[key]
+	if ok {
+		delete(c.items, key)
+	}
+	c.mu.Unlock()
+	return val, ok
+}
+
+// 複数アイテムを一度のロックでセットします
+func (c *Cache[K, V]) SetAll(items map[K]V) {
+	c.mu.Lock()
+	for k, v := range items {
+		c.items[k] = v
+	}
+	c.mu.Unlock()
+}
+
+// 複数キーを一度のロックで取得します
+// 存在するキーのみ結果に含まれます
+func (c *Cache[K, V]) GetAll(keys ...K) map[K]V {
+	c.mu.Lock()
+	result := make(map[K]V, len(keys))
+	for _, k := range keys {
+		if v, ok := c.items[k]; ok {
+			result[k] = v
+		}
+	}
+	c.mu.Unlock()
+	return result
+}
+
+// キーが存在すればその値を返し、存在しなければfn()の結果をセットして返します
+// GetOrSetと違い、値の生成を遅延できるため、コストが高い初期化に適しています
+func (c *Cache[K, V]) GetOrSetFunc(key K, fn func() V) V {
+	c.mu.Lock()
+	if existing, ok := c.items[key]; ok {
+		c.mu.Unlock()
+		return existing
+	}
+	val := fn()
+	c.items[key] = val
+	c.mu.Unlock()
+	return val
 }
