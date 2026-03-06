@@ -153,6 +153,7 @@ func (c *Cache[K, V]) Snapshot() map[K]V {
 
 // キャッシュ内の全アイテムを巡回し、fnを呼び出します
 // fnがfalseを返した場合、巡回を即座に停止します
+// 注意: ロックを保持したまま全件走査するため、アイテム数が多い場合やfnが重い場合は他の操作をブロックします
 func (c *Cache[K, V]) Range(fn func(key K, value V) bool) {
 	c.mu.Lock()
 	for k, v := range c.items {
@@ -164,6 +165,7 @@ func (c *Cache[K, V]) Range(fn func(key K, value V) bool) {
 }
 
 // 条件fnを満たすアイテムの数を返します
+// 注意: ロックを保持したまま全件走査するため、アイテム数が多い場合やfnが重い場合は他の操作をブロックします
 func (c *Cache[K, V]) Count(fn func(K, V) bool) int {
 	c.mu.Lock()
 	n := 0
@@ -187,6 +189,7 @@ func (c *Cache[K, V]) Drain() map[K]V {
 }
 
 // 条件fnを満たすアイテムを一括削除します
+// 注意: ロックを保持したまま全件走査するため、アイテム数が多い場合やfnが重い場合は他の操作をブロックします
 func (c *Cache[K, V]) DeleteFunc(fn func(K, V) bool) {
 	c.mu.Lock()
 	for k, v := range c.items {
@@ -233,6 +236,7 @@ func (c *Cache[K, V]) GetAll(keys ...K) map[K]V {
 
 // キーが存在すればその値を返し、存在しなければfn()の結果をセットして返します
 // GetOrSetと違い、値の生成を遅延できるため、コストが高い初期化に適しています
+// 注意: fnはロックを保持したまま実行されるため、fnが重い場合は他の操作をブロックします
 func (c *Cache[K, V]) GetOrSetFunc(key K, fn func() V) V {
 	c.mu.Lock()
 	if existing, ok := c.items[key]; ok {
@@ -294,6 +298,7 @@ func (c *Cache[K, V]) Replace(key K, value V) bool {
 }
 
 // 全アイテムの値をfnの戻り値でインプレース変換します
+// 注意: ロックを保持したまま全件走査するため、アイテム数が多い場合やfnが重い場合は他の操作をブロックします
 func (c *Cache[K, V]) Map(fn func(K, V) V) {
 	c.mu.Lock()
 	for k, v := range c.items {
@@ -313,6 +318,7 @@ func (c *Cache[K, V]) DeleteAll(keys ...K) {
 
 // 条件fnを満たすアイテムのスナップショットを返します
 // キャッシュ自体は変更されません
+// 注意: ロックを保持したまま全件走査するため、アイテム数が多い場合やfnが重い場合は他の操作をブロックします
 func (c *Cache[K, V]) Filter(fn func(K, V) bool) map[K]V {
 	c.mu.Lock()
 	result := make(map[K]V)
