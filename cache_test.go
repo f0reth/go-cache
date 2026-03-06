@@ -182,32 +182,32 @@ func TestConcurrency(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// フェーズ1: 複数のゴルーチンで同時に書き込み
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			c.Set(id, id*10)
-		}(i)
+			c.Set(i, i*10)
+		}()
 	}
 	wg.Wait()
 
 	// フェーズ2: バリアパターンで読み込みと削除を確実に同時実行
 	start := make(chan struct{})
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
 			<-start
-			_, _ = c.Get(id)
-		}(i)
+			_, _ = c.Get(i)
+		}()
 	}
 	for i := 0; i < 50; i += 2 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
 			<-start
-			c.Delete(id)
-		}(i)
+			c.Delete(i)
+		}()
 	}
 	close(start) // 全ゴルーチンを一斉スタート
 	wg.Wait()
@@ -238,12 +238,12 @@ func TestConcurrentClear(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// キャッシュに値を追加
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		c.Set(i, i)
 	}
 
 	// いくつかのゴルーチンでクリア操作
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -252,21 +252,21 @@ func TestConcurrentClear(t *testing.T) {
 	}
 
 	// 同時に追加操作
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			c.Set(id, id*100)
-		}(i)
+			c.Set(i, i*100)
+		}()
 	}
 
 	// 同時に読み込み操作
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			_, _ = c.Get(id)
-		}(i)
+			_, _ = c.Get(i)
+		}()
 	}
 
 	// すべてのゴルーチンの完了を待つ
@@ -428,15 +428,15 @@ func TestDrainConcurrency(t *testing.T) {
 	c := New[int, int]()
 	var wg sync.WaitGroup
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			c.Set(id, id*10)
-		}(i)
+			c.Set(i, i*10)
+		}()
 	}
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -444,12 +444,12 @@ func TestDrainConcurrency(t *testing.T) {
 		}()
 	}
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			_, _ = c.Get(id)
-		}(i)
+			_, _ = c.Get(i)
+		}()
 	}
 
 	wg.Wait()
@@ -498,19 +498,19 @@ func TestHasConcurrency(t *testing.T) {
 	c := New[int, int]()
 	var wg sync.WaitGroup
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			c.Set(id, id*10)
-		}(i)
+			c.Set(i, i*10)
+		}()
 	}
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			_ = c.Has(id)
-		}(i)
+			_ = c.Has(i)
+		}()
 	}
 
 	wg.Wait()
@@ -573,14 +573,14 @@ func TestKeysConcurrency(t *testing.T) {
 	c := New[int, int]()
 	var wg sync.WaitGroup
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			c.Set(id, id*10)
-		}(i)
+			c.Set(i, i*10)
+		}()
 	}
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -648,14 +648,14 @@ func TestValuesConcurrency(t *testing.T) {
 	c := New[int, int]()
 	var wg sync.WaitGroup
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			c.Set(id, id*10)
-		}(i)
+			c.Set(i, i*10)
+		}()
 	}
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -719,12 +719,12 @@ func TestSetIfAbsentConcurrency(t *testing.T) {
 	var wg sync.WaitGroup
 	results := make([]bool, 100)
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			results[id] = c.SetIfAbsent("key", id)
-		}(i)
+			results[i] = c.SetIfAbsent("key", i)
+		}()
 	}
 	wg.Wait()
 
@@ -793,12 +793,12 @@ func TestGetOrSetConcurrency(t *testing.T) {
 	c := New[string, int]()
 	var wg sync.WaitGroup
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			_ = c.GetOrSet("key", id)
-		}(i)
+			_ = c.GetOrSet("key", i)
+		}()
 	}
 	wg.Wait()
 
@@ -859,14 +859,14 @@ func TestSnapshotConcurrency(t *testing.T) {
 	c := New[int, int]()
 	var wg sync.WaitGroup
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			c.Set(id, id*10)
-		}(i)
+			c.Set(i, i*10)
+		}()
 	}
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -936,14 +936,14 @@ func TestRangeConcurrency(t *testing.T) {
 	c := New[int, int]()
 	var wg sync.WaitGroup
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			c.Set(id, id*10)
-		}(i)
+			c.Set(i, i*10)
+		}()
 	}
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -1012,14 +1012,14 @@ func TestLenConcurrency(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// 並行してSetとLenを実行してもデッドロックや競合が起きないことを確認
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			c.Set(id, id*10)
-		}(i)
+			c.Set(i, i*10)
+		}()
 	}
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -1139,7 +1139,7 @@ func BenchmarkSetGet(b *testing.B) {
 
 func BenchmarkConcurrentReadWrite(b *testing.B) {
 	c := New[int, int]()
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		c.Set(i, i)
 	}
 	b.ResetTimer()
@@ -1158,7 +1158,7 @@ func BenchmarkConcurrentReadWrite(b *testing.B) {
 
 func BenchmarkConcurrentRead(b *testing.B) {
 	c := New[int, int]()
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		c.Set(i, i)
 	}
 	b.ResetTimer()
@@ -1196,14 +1196,14 @@ func TestLargeScale(t *testing.T) {
 	c := New[int, int]()
 
 	// 大量のSetとGet
-	for i := 0; i < n; i++ {
+	for i := range n {
 		c.Set(i, i*10)
 	}
 	if c.Len() != n {
 		t.Errorf("Len should return %d after %d Sets, got %d", n, n, c.Len())
 	}
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		val, ok := c.Get(i)
 		if !ok {
 			t.Fatalf("Key %d should exist", i)
@@ -1248,13 +1248,13 @@ func TestLargeScaleConcurrency(t *testing.T) {
 
 	// 大量の並行書き込み
 	start := make(chan struct{})
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
 			<-start
-			c.Set(id, id*10)
-		}(i)
+			c.Set(i, i*10)
+		}()
 	}
 	close(start)
 	wg.Wait()
@@ -1265,22 +1265,22 @@ func TestLargeScaleConcurrency(t *testing.T) {
 
 	// 大量の並行読み書き混在
 	start2 := make(chan struct{})
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
 			<-start2
-			switch id % 4 {
+			switch i % 4 {
 			case 0:
-				c.Set(id, id*100)
+				c.Set(i, i*100)
 			case 1:
-				c.Get(id)
+				c.Get(i)
 			case 2:
-				c.Has(id)
+				c.Has(i)
 			case 3:
-				c.Delete(id)
+				c.Delete(i)
 			}
-		}(i)
+		}()
 	}
 	close(start2)
 	wg.Wait()
@@ -1293,7 +1293,7 @@ func TestLargeScaleOverwrite(t *testing.T) {
 	c := New[string, int]()
 
 	// 同一キーに大量上書き
-	for i := 0; i < n; i++ {
+	for i := range n {
 		c.Set("key", i)
 	}
 	if c.Len() != 1 {
@@ -1306,7 +1306,7 @@ func TestLargeScaleOverwrite(t *testing.T) {
 
 	// 多数のキーをSetしてからDeleteし、件数が一致することを確認
 	c2 := New[int, int]()
-	for i := 0; i < n; i++ {
+	for i := range n {
 		c2.Set(i, i)
 	}
 	for i := 0; i < n; i += 2 {
@@ -1330,7 +1330,7 @@ func BenchmarkKeys(b *testing.B) {
 	for _, size := range []int{100, 1_000, 10_000} {
 		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
 			c := New[int, int]()
-			for i := 0; i < size; i++ {
+			for i := range size {
 				c.Set(i, i)
 			}
 			b.ResetTimer()
@@ -1345,7 +1345,7 @@ func BenchmarkSnapshot(b *testing.B) {
 	for _, size := range []int{100, 1_000, 10_000} {
 		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
 			c := New[int, int]()
-			for i := 0; i < size; i++ {
+			for i := range size {
 				c.Set(i, i)
 			}
 			b.ResetTimer()
@@ -1408,14 +1408,14 @@ func TestDeleteFuncConcurrency(t *testing.T) {
 	c := New[int, int]()
 	var wg sync.WaitGroup
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			c.Set(id, id)
-		}(i)
+			c.Set(i, i)
+		}()
 	}
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -1481,22 +1481,22 @@ func TestPopConcurrency(t *testing.T) {
 	t.Parallel()
 
 	c := New[int, int]()
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		c.Set(i, i*10)
 	}
 
 	var wg sync.WaitGroup
 	results := make([]bool, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			_, results[id] = c.Pop(id)
-		}(i)
+			_, results[i] = c.Pop(i)
+		}()
 	}
 	wg.Wait()
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		if !results[i] {
 			t.Errorf("Pop(%d) should have succeeded", i)
 		}
@@ -1557,12 +1557,12 @@ func TestSetAllConcurrency(t *testing.T) {
 	c := New[int, int]()
 	var wg sync.WaitGroup
 
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			c.SetAll(map[int]int{id: id * 10, id + 1000: id * 100})
-		}(i)
+			c.SetAll(map[int]int{i: i * 10, i + 1000: i * 100})
+		}()
 	}
 
 	wg.Wait()
@@ -1617,24 +1617,24 @@ func TestGetAllConcurrency(t *testing.T) {
 	t.Parallel()
 
 	c := New[int, int]()
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		c.Set(i, i*10)
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			_ = c.GetAll(id, id+1, id+2)
-		}(i)
+			_ = c.GetAll(i, i+1, i+2)
+		}()
 	}
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			c.Set(id, id*100)
-		}(i)
+			c.Set(i, i*100)
+		}()
 	}
 
 	wg.Wait()
@@ -1706,12 +1706,12 @@ func TestGetOrSetFuncConcurrency(t *testing.T) {
 	c := New[string, int]()
 	var wg sync.WaitGroup
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			_ = c.GetOrSetFunc("key", func() int { return id })
-		}(i)
+			_ = c.GetOrSetFunc("key", func() int { return i })
+		}()
 	}
 	wg.Wait()
 
@@ -1760,31 +1760,31 @@ func TestCountConcurrency(t *testing.T) {
 	t.Parallel()
 
 	c := New[int, int]()
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		c.Set(i, i)
 	}
 	var wg sync.WaitGroup
 
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			_ = c.Count(func(k, v int) bool { return v%2 == 0 })
 		}()
 	}
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			c.Set(id, id*100)
-		}(i)
+			c.Set(i, i*100)
+		}()
 	}
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			c.Delete(id)
-		}(i)
+			c.Delete(i)
+		}()
 	}
 	wg.Wait()
 }
@@ -1815,7 +1815,7 @@ func TestUpdate(t *testing.T) {
 	}
 
 	// 複数回更新
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		c.Update("counter", func(v int) int { return v * 2 })
 	}
 	val, _ = c.Get("counter")
@@ -1831,7 +1831,7 @@ func TestUpdateConcurrency(t *testing.T) {
 	c.Set("counter", 0)
 	var wg sync.WaitGroup
 
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -1889,12 +1889,12 @@ func TestSwapConcurrency(t *testing.T) {
 	c.Set("key", 0)
 	var wg sync.WaitGroup
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			c.Swap("key", id)
-		}(i)
+			c.Swap("key", i)
+		}()
 	}
 	wg.Wait()
 
@@ -1971,12 +1971,12 @@ func TestCompareAndSwapConcurrency(t *testing.T) {
 
 	// 0→1に変更できるのは1つだけ
 	results := make([]bool, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			results[id] = c.CompareAndSwap("key", 0, 1, eq)
-		}(i)
+			results[i] = c.CompareAndSwap("key", 0, 1, eq)
+		}()
 	}
 	wg.Wait()
 
@@ -2032,24 +2032,24 @@ func TestReplaceConcurrency(t *testing.T) {
 	t.Parallel()
 
 	c := New[int, int]()
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		c.Set(i, i)
 	}
 	var wg sync.WaitGroup
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			c.Replace(id, id*100)
-		}(i)
+			c.Replace(i, i*100)
+		}()
 	}
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			c.Replace(id+200, 999) // 存在しないキー
-		}(i)
+			c.Replace(i+200, 999) // 存在しないキー
+		}()
 	}
 	wg.Wait()
 }
@@ -2090,24 +2090,24 @@ func TestMapConcurrency(t *testing.T) {
 	t.Parallel()
 
 	c := New[int, int]()
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		c.Set(i, i)
 	}
 	var wg sync.WaitGroup
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			c.Map(func(k, v int) int { return v + 1 })
 		}()
 	}
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			_, _ = c.Get(id)
-		}(i)
+			_, _ = c.Get(i)
+		}()
 	}
 	wg.Wait()
 }
@@ -2149,24 +2149,24 @@ func TestDeleteAllConcurrency(t *testing.T) {
 	t.Parallel()
 
 	c := New[int, int]()
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		c.Set(i, i)
 	}
 	var wg sync.WaitGroup
 
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			c.DeleteAll(id*5, id*5+1, id*5+2, id*5+3, id*5+4)
-		}(i)
+			c.DeleteAll(i*5, i*5+1, i*5+2, i*5+3, i*5+4)
+		}()
 	}
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			_, _ = c.Get(id)
-		}(i)
+			_, _ = c.Get(i)
+		}()
 	}
 	wg.Wait()
 }
@@ -2218,24 +2218,24 @@ func TestFilterConcurrency(t *testing.T) {
 	t.Parallel()
 
 	c := New[int, int]()
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		c.Set(i, i)
 	}
 	var wg sync.WaitGroup
 
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			_ = c.Filter(func(k, v int) bool { return v%2 == 0 })
 		}()
 	}
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			c.Set(id, id*100)
-		}(i)
+			c.Set(i, i*100)
+		}()
 	}
 	wg.Wait()
 }
@@ -2276,25 +2276,25 @@ func TestCompareAndDeleteConcurrency(t *testing.T) {
 	t.Parallel()
 
 	c := New[int, int]()
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		c.Set(i, i)
 	}
 	var wg sync.WaitGroup
 
 	// 偶数値のみ削除を並行実行
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			c.CompareAndDelete(id, func(v int) bool { return v%2 == 0 })
-		}(i)
+			c.CompareAndDelete(i, func(v int) bool { return v%2 == 0 })
+		}()
 	}
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
-			_, _ = c.Get(id)
-		}(i)
+			_, _ = c.Get(i)
+		}()
 	}
 	wg.Wait()
 }
@@ -2305,7 +2305,7 @@ func BenchmarkDrain(b *testing.B) {
 			c := New[int, int]()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				for j := 0; j < size; j++ {
+				for j := range size {
 					c.Set(j, j)
 				}
 				c.Drain()

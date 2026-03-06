@@ -1,3 +1,3 @@
 module github.com/f0reth/go-cache
 
-go 1.20
+go 1.22
