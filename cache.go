@@ -24,6 +24,11 @@ type CacheInterface[K comparable, V any] interface {
 	Pop(key K) (V, bool)
 	SetAll(items map[K]V)
 	GetAll(keys ...K) map[K]V
+	Update(key K, fn func(V) V) bool
+	Swap(key K, value V) (V, bool)
+	CompareAndSwap(key K, old, new V, eq func(V, V) bool) bool
+	Replace(key K, value V) bool
+	Map(fn func(K, V) V)
 }
 
 type Cache[K comparable, V any] struct {
@@ -235,4 +240,61 @@ func (c *Cache[K, V]) GetOrSetFunc(key K, fn func() V) V {
 	c.items[key] = val
 	c.mu.Unlock()
 	return val
+}
+
+// キーが存在する場合、fnで値を更新します
+// キーが存在した場合はtrueを、存在しなかった場合はfalseを返します
+func (c *Cache[K, V]) Update(key K, fn func(V) V) bool {
+	c.mu.Lock()
+	val, ok := c.items[key]
+	if ok {
+		c.items[key] = fn(val)
+	}
+	c.mu.Unlock()
+	return ok
+}
+
+// 値を入れ替え、古い値を返します
+// キーが存在しなかった場合は新しい値をセットし、ゼロ値とfalseを返します
+func (c *Cache[K, V]) Swap(key K, value V) (zero V, ok bool) {
+	c.mu.Lock()
+	old, ok := c.items[key]
+	c.items[key] = value
+	c.mu.Unlock()
+	return old, ok
+}
+
+// oldとeqで比較して一致する場合のみnewに置き換えます
+// キーが存在しない場合、または値が一致しない場合はfalseを返します
+func (c *Cache[K, V]) CompareAndSwap(key K, old, new V, eq func(V, V) bool) bool {
+	c.mu.Lock()
+	current, ok := c.items[key]
+	if ok && eq(current, old) {
+		c.items[key] = new
+		c.mu.Unlock()
+		return true
+	}
+	c.mu.Unlock()
+	return false
+}
+
+// キーが既に存在する場合のみ値を上書きします
+// 上書きした場合はtrueを、キーが存在しなかった場合はfalseを返します
+func (c *Cache[K, V]) Replace(key K, value V) bool {
+	c.mu.Lock()
+	_, ok := c.items[key]
+	if ok {
+		c.items[key] = value
+	}
+	c.mu.Unlock()
+	return ok
+}
+
+// 全アイテムの値をfnの戻り値でインプレース変換します
+func (c *Cache[K, V]) Map(fn func(K, V) V) {
+	c.mu.Lock()
+	for k, v := range c.items {
+		c.items[k] = fn(k, v)
+	}
+	c.mu.Unlock()
 }

@@ -1649,6 +1649,306 @@ func TestCount(t *testing.T) {
 	}
 }
 
+func TestUpdate(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+	c.Set("counter", 10)
+
+	// 存在するキーを更新
+	ok := c.Update("counter", func(v int) int { return v + 1 })
+	if !ok {
+		t.Error("Update should return true for existing key")
+	}
+	val, _ := c.Get("counter")
+	if val != 11 {
+		t.Errorf("Update should increment value, expected 11, got %d", val)
+	}
+
+	// 存在しないキーは更新しない
+	ok = c.Update("missing", func(v int) int { return v + 1 })
+	if ok {
+		t.Error("Update should return false for non-existent key")
+	}
+	if c.Has("missing") {
+		t.Error("Update should not create a new key")
+	}
+
+	// 複数回更新
+	for i := 0; i < 5; i++ {
+		c.Update("counter", func(v int) int { return v * 2 })
+	}
+	val, _ = c.Get("counter")
+	if val != 11*32 {
+		t.Errorf("Update after 5 doublings, expected %d, got %d", 11*32, val)
+	}
+}
+
+func TestUpdateConcurrency(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+	c.Set("counter", 0)
+	var wg sync.WaitGroup
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.Update("counter", func(v int) int { return v + 1 })
+		}()
+	}
+	wg.Wait()
+
+	val, _ := c.Get("counter")
+	if val != 100 {
+		t.Errorf("Counter should be 100 after 100 increments, got %d", val)
+	}
+}
+
+func TestSwap(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+	c.Set("key1", 42)
+
+	// 存在するキーをスワップ
+	old, ok := c.Swap("key1", 100)
+	if !ok {
+		t.Error("Swap should return true for existing key")
+	}
+	if old != 42 {
+		t.Errorf("Swap should return old value 42, got %d", old)
+	}
+	val, _ := c.Get("key1")
+	if val != 100 {
+		t.Errorf("Swap should set new value 100, got %d", val)
+	}
+
+	// 存在しないキーをスワップ（新規作成される）
+	old, ok = c.Swap("new-key", 200)
+	if ok {
+		t.Error("Swap should return false for non-existent key")
+	}
+	if old != 0 {
+		t.Errorf("Swap should return zero value for non-existent key, got %d", old)
+	}
+	val, exists := c.Get("new-key")
+	if !exists || val != 200 {
+		t.Errorf("Swap should create new key with value 200, got %v, %v", val, exists)
+	}
+	if c.Len() != 2 {
+		t.Errorf("Len should be 2, got %d", c.Len())
+	}
+}
+
+func TestSwapConcurrency(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+	c.Set("key", 0)
+	var wg sync.WaitGroup
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			c.Swap("key", id)
+		}(i)
+	}
+	wg.Wait()
+
+	_, ok := c.Get("key")
+	if !ok {
+		t.Error("key should exist after concurrent swaps")
+	}
+}
+
+func TestCompareAndSwap(t *testing.T) {
+	t.Parallel()
+
+	eq := func(a, b int) bool { return a == b }
+	c := New[string, int]()
+	c.Set("key1", 42)
+
+	// 値が一致する場合はスワップ成功
+	ok := c.CompareAndSwap("key1", 42, 100, eq)
+	if !ok {
+		t.Error("CompareAndSwap should return true when values match")
+	}
+	val, _ := c.Get("key1")
+	if val != 100 {
+		t.Errorf("CompareAndSwap should set new value 100, got %d", val)
+	}
+
+	// 値が一致しない場合はスワップ失敗
+	ok = c.CompareAndSwap("key1", 42, 200, eq)
+	if ok {
+		t.Error("CompareAndSwap should return false when values don't match")
+	}
+	val, _ = c.Get("key1")
+	if val != 100 {
+		t.Errorf("CompareAndSwap should not change value, expected 100, got %d", val)
+	}
+
+	// 存在しないキー
+	ok = c.CompareAndSwap("missing", 0, 1, eq)
+	if ok {
+		t.Error("CompareAndSwap should return false for non-existent key")
+	}
+}
+
+func TestCompareAndSwapConcurrency(t *testing.T) {
+	t.Parallel()
+
+	eq := func(a, b int) bool { return a == b }
+	c := New[string, int]()
+	c.Set("key", 0)
+	var wg sync.WaitGroup
+
+	// 0→1に変更できるのは1つだけ
+	results := make([]bool, 100)
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			results[id] = c.CompareAndSwap("key", 0, 1, eq)
+		}(i)
+	}
+	wg.Wait()
+
+	count := 0
+	for _, ok := range results {
+		if ok {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("CompareAndSwap should succeed exactly once, got %d", count)
+	}
+	val, _ := c.Get("key")
+	if val != 1 {
+		t.Errorf("Value should be 1 after CAS, got %d", val)
+	}
+}
+
+func TestReplace(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+
+	// 存在しないキーはfalse
+	ok := c.Replace("missing", 100)
+	if ok {
+		t.Error("Replace should return false for non-existent key")
+	}
+	if c.Has("missing") {
+		t.Error("Replace should not create a new key")
+	}
+
+	// 存在するキーは上書き
+	c.Set("key1", 42)
+	ok = c.Replace("key1", 100)
+	if !ok {
+		t.Error("Replace should return true for existing key")
+	}
+	val, _ := c.Get("key1")
+	if val != 100 {
+		t.Errorf("Replace should update value to 100, got %d", val)
+	}
+
+	// 削除後はfalse
+	c.Delete("key1")
+	ok = c.Replace("key1", 200)
+	if ok {
+		t.Error("Replace should return false after Delete")
+	}
+}
+
+func TestReplaceConcurrency(t *testing.T) {
+	t.Parallel()
+
+	c := New[int, int]()
+	for i := 0; i < 100; i++ {
+		c.Set(i, i)
+	}
+	var wg sync.WaitGroup
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			c.Replace(id, id*100)
+		}(i)
+	}
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			c.Replace(id+200, 999) // 存在しないキー
+		}(i)
+	}
+	wg.Wait()
+}
+
+func TestMap(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+	c.Set("a", 1)
+	c.Set("b", 2)
+	c.Set("c", 3)
+
+	// 全ての値を2倍にする
+	c.Map(func(k string, v int) int { return v * 2 })
+
+	expected := map[string]int{"a": 2, "b": 4, "c": 6}
+	for k, want := range expected {
+		got, ok := c.Get(k)
+		if !ok || got != want {
+			t.Errorf("Map: Get(%q) = (%d, %v), want (%d, true)", k, got, ok, want)
+		}
+	}
+
+	// アイテム数は変わらない
+	if c.Len() != 3 {
+		t.Errorf("Map should not change cache size, got %d", c.Len())
+	}
+
+	// 空キャッシュでも安全
+	c2 := New[string, int]()
+	c2.Map(func(k string, v int) int { return v * 2 })
+	if c2.Len() != 0 {
+		t.Errorf("Map on empty cache should be safe, got len %d", c2.Len())
+	}
+}
+
+func TestMapConcurrency(t *testing.T) {
+	t.Parallel()
+
+	c := New[int, int]()
+	for i := 0; i < 100; i++ {
+		c.Set(i, i)
+	}
+	var wg sync.WaitGroup
+
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.Map(func(k, v int) int { return v + 1 })
+		}()
+	}
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			_, _ = c.Get(id)
+		}(i)
+	}
+	wg.Wait()
+}
+
 func BenchmarkDrain(b *testing.B) {
 	for _, size := range []int{100, 1_000, 10_000} {
 		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
