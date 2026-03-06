@@ -1949,6 +1949,193 @@ func TestMapConcurrency(t *testing.T) {
 	wg.Wait()
 }
 
+func TestDeleteAll(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+	c.Set("a", 1)
+	c.Set("b", 2)
+	c.Set("c", 3)
+	c.Set("d", 4)
+
+	c.DeleteAll("a", "c")
+	if c.Len() != 2 {
+		t.Errorf("Len should be 2 after DeleteAll, got %d", c.Len())
+	}
+	if c.Has("a") || c.Has("c") {
+		t.Error("DeleteAll should remove specified keys")
+	}
+	if !c.Has("b") || !c.Has("d") {
+		t.Error("DeleteAll should not remove unspecified keys")
+	}
+
+	// 存在しないキーを含んでも安全
+	c.DeleteAll("b", "not-exists")
+	if c.Len() != 1 {
+		t.Errorf("Len should be 1, got %d", c.Len())
+	}
+
+	// 引数なしでも安全
+	c.DeleteAll()
+	if c.Len() != 1 {
+		t.Errorf("DeleteAll with no args should not change cache, got len %d", c.Len())
+	}
+}
+
+func TestDeleteAllConcurrency(t *testing.T) {
+	t.Parallel()
+
+	c := New[int, int]()
+	for i := 0; i < 100; i++ {
+		c.Set(i, i)
+	}
+	var wg sync.WaitGroup
+
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			c.DeleteAll(id*5, id*5+1, id*5+2, id*5+3, id*5+4)
+		}(i)
+	}
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			_, _ = c.Get(id)
+		}(i)
+	}
+	wg.Wait()
+}
+
+func TestFilter(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+	c.Set("a", 1)
+	c.Set("b", -2)
+	c.Set("c", 3)
+	c.Set("d", -4)
+
+	// 正の値のみ抽出
+	result := c.Filter(func(k string, v int) bool { return v > 0 })
+	if len(result) != 2 {
+		t.Errorf("Filter should return 2 items, got %d", len(result))
+	}
+	if result["a"] != 1 || result["c"] != 3 {
+		t.Errorf("Filter should return positive values, got %v", result)
+	}
+
+	// キャッシュは変更されない
+	if c.Len() != 4 {
+		t.Errorf("Filter should not modify cache, got len %d", c.Len())
+	}
+
+	// 返されたマップを変更してもキャッシュに影響しない
+	result["a"] = 999
+	val, _ := c.Get("a")
+	if val != 1 {
+		t.Errorf("Modifying Filter result should not affect cache, got %d", val)
+	}
+
+	// 何もマッチしない場合
+	empty := c.Filter(func(k string, v int) bool { return false })
+	if len(empty) != 0 {
+		t.Errorf("Filter with always-false should return empty map, got %v", empty)
+	}
+
+	// 全てマッチする場合
+	all := c.Filter(func(k string, v int) bool { return true })
+	if len(all) != 4 {
+		t.Errorf("Filter with always-true should return all items, got %d", len(all))
+	}
+}
+
+func TestFilterConcurrency(t *testing.T) {
+	t.Parallel()
+
+	c := New[int, int]()
+	for i := 0; i < 100; i++ {
+		c.Set(i, i)
+	}
+	var wg sync.WaitGroup
+
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = c.Filter(func(k, v int) bool { return v%2 == 0 })
+		}()
+	}
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			c.Set(id, id*100)
+		}(i)
+	}
+	wg.Wait()
+}
+
+func TestCompareAndDelete(t *testing.T) {
+	t.Parallel()
+
+	c := New[string, int]()
+	c.Set("key1", 42)
+
+	// 条件を満たす場合は削除
+	ok := c.CompareAndDelete("key1", func(v int) bool { return v == 42 })
+	if !ok {
+		t.Error("CompareAndDelete should return true when condition matches")
+	}
+	if c.Has("key1") {
+		t.Error("CompareAndDelete should remove the key")
+	}
+
+	// 条件を満たさない場合は削除しない
+	c.Set("key2", 100)
+	ok = c.CompareAndDelete("key2", func(v int) bool { return v == 42 })
+	if ok {
+		t.Error("CompareAndDelete should return false when condition doesn't match")
+	}
+	if !c.Has("key2") {
+		t.Error("CompareAndDelete should not remove key when condition doesn't match")
+	}
+
+	// 存在しないキー
+	ok = c.CompareAndDelete("missing", func(v int) bool { return true })
+	if ok {
+		t.Error("CompareAndDelete should return false for non-existent key")
+	}
+}
+
+func TestCompareAndDeleteConcurrency(t *testing.T) {
+	t.Parallel()
+
+	c := New[int, int]()
+	for i := 0; i < 100; i++ {
+		c.Set(i, i)
+	}
+	var wg sync.WaitGroup
+
+	// 偶数値のみ削除を並行実行
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			c.CompareAndDelete(id, func(v int) bool { return v%2 == 0 })
+		}(i)
+	}
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			_, _ = c.Get(id)
+		}(i)
+	}
+	wg.Wait()
+}
+
 func BenchmarkDrain(b *testing.B) {
 	for _, size := range []int{100, 1_000, 10_000} {
 		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {

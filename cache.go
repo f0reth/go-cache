@@ -29,6 +29,9 @@ type CacheInterface[K comparable, V any] interface {
 	CompareAndSwap(key K, old, new V, eq func(V, V) bool) bool
 	Replace(key K, value V) bool
 	Map(fn func(K, V) V)
+	DeleteAll(keys ...K)
+	Filter(fn func(K, V) bool) map[K]V
+	CompareAndDelete(key K, fn func(V) bool) bool
 }
 
 type Cache[K comparable, V any] struct {
@@ -297,4 +300,41 @@ func (c *Cache[K, V]) Map(fn func(K, V) V) {
 		c.items[k] = fn(k, v)
 	}
 	c.mu.Unlock()
+}
+
+// 複数キーを一度のロックで削除します
+func (c *Cache[K, V]) DeleteAll(keys ...K) {
+	c.mu.Lock()
+	for _, k := range keys {
+		delete(c.items, k)
+	}
+	c.mu.Unlock()
+}
+
+// 条件fnを満たすアイテムのスナップショットを返します
+// キャッシュ自体は変更されません
+func (c *Cache[K, V]) Filter(fn func(K, V) bool) map[K]V {
+	c.mu.Lock()
+	result := make(map[K]V)
+	for k, v := range c.items {
+		if fn(k, v) {
+			result[k] = v
+		}
+	}
+	c.mu.Unlock()
+	return result
+}
+
+// 値がfnの条件を満たす場合のみ削除します
+// 削除した場合はtrueを、キーが存在しないか条件を満たさない場合はfalseを返します
+func (c *Cache[K, V]) CompareAndDelete(key K, fn func(V) bool) bool {
+	c.mu.Lock()
+	val, ok := c.items[key]
+	if ok && fn(val) {
+		delete(c.items, key)
+		c.mu.Unlock()
+		return true
+	}
+	c.mu.Unlock()
+	return false
 }
