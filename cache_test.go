@@ -698,6 +698,18 @@ func TestSetIfAbsent(t *testing.T) {
 	if val != 100 {
 		t.Errorf("SetIfAbsent should set new value after Delete, expected 100, got %v", val)
 	}
+
+	// ゼロ値をセットした場合、キーは存在する扱いになる
+	if ok := c.SetIfAbsent("zero-key", 0); !ok {
+		t.Error("SetIfAbsent with zero value should return true for new key")
+	}
+	if ok := c.SetIfAbsent("zero-key", 999); ok {
+		t.Error("SetIfAbsent should return false when zero value is already set")
+	}
+	val, _ = c.Get("zero-key")
+	if val != 0 {
+		t.Errorf("SetIfAbsent should not overwrite zero value, expected 0, got %v", val)
+	}
 }
 
 func TestSetIfAbsentConcurrency(t *testing.T) {
@@ -751,6 +763,27 @@ func TestGetOrSet(t *testing.T) {
 	stored, _ = c.Get("key1")
 	if stored != 42 {
 		t.Errorf("GetOrSet should not overwrite existing value, expected 42, got %v", stored)
+	}
+
+	// 削除後はデフォルト値がセットされる
+	c.Delete("key1")
+	val = c.GetOrSet("key1", 100)
+	if val != 100 {
+		t.Errorf("GetOrSet after Delete should return new value 100, got %v", val)
+	}
+	stored, ok = c.Get("key1")
+	if !ok || stored != 100 {
+		t.Errorf("GetOrSet after Delete should persist value, got %v, %v", stored, ok)
+	}
+
+	// ゼロ値をデフォルトとして渡した場合
+	val = c.GetOrSet("zero-key", 0)
+	if val != 0 {
+		t.Errorf("GetOrSet with zero value should return 0, got %v", val)
+	}
+	stored, ok = c.Get("zero-key")
+	if !ok || stored != 0 {
+		t.Errorf("GetOrSet with zero value should persist, got %v, %v", stored, ok)
 	}
 }
 
@@ -884,6 +917,16 @@ func TestRange(t *testing.T) {
 	})
 	if stopCount != 1 {
 		t.Errorf("Range should stop after fn returns false, got %d calls", stopCount)
+	}
+
+	// 2件で停止
+	limitCount := 0
+	c.Range(func(key string, value int) bool {
+		limitCount++
+		return limitCount < 2
+	})
+	if limitCount != 2 {
+		t.Errorf("Range should stop after 2 items when fn returns false on 2nd call, got %d calls", limitCount)
 	}
 }
 
@@ -1418,6 +1461,20 @@ func TestPop(t *testing.T) {
 	if c.Len() != 0 {
 		t.Errorf("Len should be 0 after popping all keys, got %d", c.Len())
 	}
+
+	// 同一キーの連続Pop（2回目はfalse）
+	c.Set("key3", 77)
+	val, ok = c.Pop("key3")
+	if !ok || val != 77 {
+		t.Errorf("First Pop should return (77, true), got (%v, %v)", val, ok)
+	}
+	val, ok = c.Pop("key3")
+	if ok {
+		t.Error("Second Pop on same key should return false")
+	}
+	if val != 0 {
+		t.Errorf("Second Pop should return zero value, got %v", val)
+	}
 }
 
 func TestPopConcurrency(t *testing.T) {
@@ -1486,6 +1543,12 @@ func TestSetAll(t *testing.T) {
 	if c.Len() != 4 {
 		t.Errorf("SetAll with empty map should not change cache, got len %d", c.Len())
 	}
+
+	// nilマップでも安全
+	c.SetAll(nil)
+	if c.Len() != 4 {
+		t.Errorf("SetAll with nil map should not change cache, got len %d", c.Len())
+	}
 }
 
 func TestSetAllConcurrency(t *testing.T) {
@@ -1530,6 +1593,17 @@ func TestGetAll(t *testing.T) {
 	empty := c.GetAll()
 	if len(empty) != 0 {
 		t.Errorf("GetAll with no keys should return empty map, got %v", empty)
+	}
+
+	// 返却マップを変更してもキャッシュに影響しない
+	result["key1"] = 999
+	result["key4"] = 4
+	val, ok := c.Get("key1")
+	if !ok || val != 1 {
+		t.Errorf("Modifying GetAll result should not affect cache, expected 1, got %v", val)
+	}
+	if c.Has("key4") {
+		t.Error("Modifying GetAll result should not add keys to cache")
 	}
 
 	// 全て存在しないキー
@@ -1598,6 +1672,32 @@ func TestGetOrSetFunc(t *testing.T) {
 	if callCount != 1 {
 		t.Errorf("fn should not be called for existing key, got %d calls", callCount)
 	}
+
+	// 削除後はfnが呼ばれる
+	c.Delete("key1")
+	val = c.GetOrSetFunc("key1", func() int {
+		callCount++
+		return 200
+	})
+	if val != 200 {
+		t.Errorf("GetOrSetFunc after Delete should return fn result 200, got %v", val)
+	}
+	if callCount != 2 {
+		t.Errorf("fn should be called after Delete, got %d calls", callCount)
+	}
+
+	// fnがゼロ値を返す場合でもセットされる
+	val = c.GetOrSetFunc("zero-key", func() int { return 0 })
+	if val != 0 {
+		t.Errorf("GetOrSetFunc with zero return should return 0, got %v", val)
+	}
+	stored, ok = c.Get("zero-key")
+	if !ok {
+		t.Error("GetOrSetFunc with zero return should persist the key")
+	}
+	if stored != 0 {
+		t.Errorf("GetOrSetFunc with zero return should persist 0, got %v", stored)
+	}
 }
 
 func TestGetOrSetFuncConcurrency(t *testing.T) {
@@ -1628,12 +1728,19 @@ func TestCount(t *testing.T) {
 	t.Parallel()
 
 	c := New[string, int]()
+
+	// 空キャッシュ
+	n := c.Count(func(k string, v int) bool { return true })
+	if n != 0 {
+		t.Errorf("Count on empty cache should be 0, got %d", n)
+	}
+
 	c.Set("a", 1)
 	c.Set("b", -2)
 	c.Set("c", 3)
 	c.Set("d", -4)
 
-	n := c.Count(func(k string, v int) bool { return v > 0 })
+	n = c.Count(func(k string, v int) bool { return v > 0 })
 	if n != 2 {
 		t.Errorf("Count of positive values should be 2, got %d", n)
 	}
@@ -1647,6 +1754,39 @@ func TestCount(t *testing.T) {
 	if n != 0 {
 		t.Errorf("Count with always-false should be 0, got %d", n)
 	}
+}
+
+func TestCountConcurrency(t *testing.T) {
+	t.Parallel()
+
+	c := New[int, int]()
+	for i := 0; i < 100; i++ {
+		c.Set(i, i)
+	}
+	var wg sync.WaitGroup
+
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = c.Count(func(k, v int) bool { return v%2 == 0 })
+		}()
+	}
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			c.Set(id, id*100)
+		}(i)
+	}
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			c.Delete(id)
+		}(i)
+	}
+	wg.Wait()
 }
 
 func TestUpdate(t *testing.T) {
@@ -1795,6 +1935,29 @@ func TestCompareAndSwap(t *testing.T) {
 	ok = c.CompareAndSwap("missing", 0, 1, eq)
 	if ok {
 		t.Error("CompareAndSwap should return false for non-existent key")
+	}
+
+	// カスタムeq関数（構造体の特定フィールドのみ比較）
+	type item struct {
+		ID   int
+		Name string
+	}
+	c2 := New[string, item]()
+	c2.Set("item1", item{ID: 1, Name: "old"})
+	eqByID := func(a, b item) bool { return a.ID == b.ID }
+	// IDが一致するのでスワップ成功（Nameは異なってもOK）
+	ok = c2.CompareAndSwap("item1", item{ID: 1, Name: "different"}, item{ID: 1, Name: "new"}, eqByID)
+	if !ok {
+		t.Error("CompareAndSwap with custom eq should succeed when ID matches")
+	}
+	got, _ := c2.Get("item1")
+	if got.Name != "new" {
+		t.Errorf("CompareAndSwap with custom eq should update value, got %+v", got)
+	}
+	// IDが異なるのでスワップ失敗
+	ok = c2.CompareAndSwap("item1", item{ID: 999, Name: "new"}, item{ID: 2, Name: "newer"}, eqByID)
+	if ok {
+		t.Error("CompareAndSwap with custom eq should fail when ID doesn't match")
 	}
 }
 
